@@ -16,6 +16,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import { AgentNotificationsBridge } from "@/modules/agents";
+import { firePendingReviewForSession } from "@/modules/agents/lib/review";
+import { useManagedAgentsStore } from "@/modules/agents/store/managedAgentsStore";
 import { Toaster } from "@/components/ui/sonner";
 import {
   AgentRunBridge,
@@ -45,6 +47,7 @@ import {
   type GitHistorySearchHandle,
 } from "@/modules/git-history";
 import { getLaunchDir } from "@/lib/launchDir";
+import { quoteShellArg } from "@/lib/shellQuote";
 import { useZoom } from "@/lib/useZoom";
 import { FileExplorer, type FileExplorerHandle } from "@/modules/explorer";
 import {
@@ -83,6 +86,8 @@ import {
   leafIds,
   respawnSession,
   TerminalStack,
+  whenSessionReady,
+  writeToSession,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
@@ -160,6 +165,7 @@ export default function App() {
     activeId,
     setActiveId,
     newTab,
+    newAgentTab,
     newPrivateTab,
     openFileTab,
     pinTab,
@@ -379,6 +385,7 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [newEditorOpen, setNewEditorOpen] = useState(false);
   const miniOpen = useChatStore((s) => s.mini.open);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
   const openMini = useChatStore((s) => s.openMini);
   const focusInput = useChatStore((s) => s.focusInput);
   const openPanel = useChatStore((s) => s.openPanel);
@@ -388,6 +395,10 @@ export default function App() {
   const setSelectedModelId = useChatStore((s) => s.setSelectedModelId);
   const setLive = useChatStore((s) => s.setLive);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
+
+  useEffect(() => {
+    if (activeSessionId) firePendingReviewForSession(activeSessionId);
+  }, [activeSessionId]);
   const lmstudioModelId = usePreferencesStore((s) => s.lmstudioModelId);
   const lmstudioBaseURL = usePreferencesStore((s) => s.lmstudioBaseURL);
   const mlxModelId = usePreferencesStore((s) => s.mlxModelId);
@@ -800,10 +811,7 @@ export default function App() {
       if (activeLeafId === null) return;
       const term = terminalRefs.current.get(activeLeafId);
       if (!term) return;
-      const quoted = path.includes(" ")
-        ? `'${path.replace(/'/g, `'\\''`)}'`
-        : path;
-      term.write(`cd ${quoted}\r`);
+      term.write(`cd ${quoteShellArg(path)}\r`);
       term.focus();
     },
     [activeLeafId],
@@ -817,10 +825,7 @@ export default function App() {
         if (!tab || tab.kind !== "terminal") return;
         const t = terminalRefs.current.get(tab.activeLeafId);
         if (!t) return;
-        const quoted = path.includes(" ")
-          ? `'${path.replace(/'/g, `'\\''`)}'`
-          : path;
-        t.write(`cd ${quoted}\r`);
+        t.write(`cd ${quoteShellArg(path)}\r`);
         t.focus();
       }, 80);
     },
@@ -1242,8 +1247,40 @@ export default function App() {
         openPreviewTab(url);
         return true;
       },
+      spawnManagedAgent: (prompt: string, sessionId: string) => {
+        const oneLine = prompt.replace(/\s*\r?\n\s*/g, " ").trim();
+        if (!oneLine) return null;
+        const cwd = findCwd();
+        const short = oneLine.length > 32 ? `${oneLine.slice(0, 32)}…` : oneLine;
+        const { tabId, leafId } = newAgentTab(cwd ?? undefined, `claude · ${short}`);
+        useManagedAgentsStore
+          .getState()
+          .register({ leafId, tabId, sessionId, task: oneLine, cwd });
+        // Claude reads settings.json at startup, so the review-loop hooks must
+        // be in place before the command runs. Best-effort: never block spawn.
+        const hooksReady = invoke("agent_enable_claude_hooks").catch(() => {});
+        void Promise.all([whenSessionReady(leafId), hooksReady]).then(() => {
+          if (writeToSession(leafId, `claude ${quoteShellArg(oneLine)}\r`)) {
+            useManagedAgentsStore.getState().setPhase(leafId, "working");
+          }
+        });
+        return { tabId, leafId };
+      },
+      readLeafBuffer: (leafId: number) => {
+        const buf = terminalRefs.current.get(leafId)?.getBuffer(300);
+        return buf ? redactSensitive(buf) : null;
+      },
     });
-  }, [setLive, activeId, tabs, explorerRoot, launchCwd, home, openPreviewTab]);
+  }, [
+    setLive,
+    activeId,
+    tabs,
+    explorerRoot,
+    launchCwd,
+    home,
+    openPreviewTab,
+    newAgentTab,
+  ]);
 
   const workspaceSurface = (
     <div className="relative h-full min-h-0">

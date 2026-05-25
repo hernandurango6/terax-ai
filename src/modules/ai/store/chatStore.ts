@@ -41,6 +41,11 @@ type Live = {
   getWorkspaceRoot: () => string | null;
   getActiveFile: () => string | null;
   openPreview: (url: string) => boolean;
+  spawnManagedAgent: (
+    prompt: string,
+    sessionId: string,
+  ) => { tabId: number; leafId: number } | null;
+  readLeafBuffer: (leafId: number) => string | null;
 };
 
 export type AgentRunStatus =
@@ -159,6 +164,8 @@ const NOOP_LIVE: Live = {
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
   openPreview: () => false,
+  spawnManagedAgent: () => null,
+  readLeafBuffer: () => null,
 };
 
 const CHATS_LRU_CAP = 8;
@@ -219,6 +226,10 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     injectIntoActivePty: (text) =>
       useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
+    spawnAgent: (prompt) =>
+      useChatStore.getState().live.spawnManagedAgent(prompt, sessionId),
+    readAgentOutput: (leafId) =>
+      useChatStore.getState().live.readLeafBuffer(leafId),
     readCache,
     getSessionId: () => sessionId,
   };
