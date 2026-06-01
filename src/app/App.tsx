@@ -85,12 +85,14 @@ import {
   disposeSession,
   findLeafCwd,
   hasLeaf,
+  leafHasForegroundProcess,
   leafIds,
   respawnSession,
   TerminalStack,
   whenSessionReady,
   writeToSession,
   type TerminalPaneHandle,
+  useTerminalFileDrop,
 } from "@/modules/terminal";
 import { ThemeProvider } from "@/modules/theme";
 import { listCustomThemes, saveCustomTheme } from "@/modules/theme/customThemes";
@@ -229,6 +231,7 @@ export default function App() {
   const [gitHistoryHandle, setGitHistoryHandle] =
     useState<GitHistorySearchHandle | null>(null);
   const { zoomIn, zoomOut, zoomReset } = useZoom();
+  useTerminalFileDrop();
   const explorerRef = useRef<FileExplorerHandle>(null);
   const explorerReturnFocusRef = useRef<HTMLElement | null>(null);
 
@@ -323,6 +326,7 @@ export default function App() {
 
   const [home, setHome] = useState<string | null>(null);
   const [pendingCloseTab, setPendingCloseTab] = useState<number | null>(null);
+  const [pendingTerminalCloseTab, setPendingTerminalCloseTab] = useState<number | null>(null);
   const workspaceEnv = useWorkspaceEnvStore((s) => s.env);
   const setWorkspaceEnv = useWorkspaceEnvStore((s) => s.setEnv);
   const [launchCwd, setLaunchCwd] = useState<string | null>(null);
@@ -683,11 +687,19 @@ export default function App() {
   }, [tabs]);
 
   const handleClose = useCallback(
-    (id: number) => {
+    async (id: number) => {
       const t = tabs.find((x) => x.id === id);
       if (t?.kind === "editor" && t.dirty) {
         setPendingCloseTab(id);
         return;
+      }
+      if (t?.kind === "terminal") {
+        const leaves = leafIds(t.paneTree);
+        const checks = await Promise.all(leaves.map(leafHasForegroundProcess));
+        if (checks.some(Boolean)) {
+          setPendingTerminalCloseTab(id);
+          return;
+        }
       }
       disposeTab(id);
     },
@@ -1040,8 +1052,10 @@ export default function App() {
       closeActivePane(activeId);
       return;
     }
-    handleClose(activeId);
+    void handleClose(activeId);
   }, [activeId, closeActivePane, handleClose]);
+
+  const [zenMode, setZenMode] = useState(false);
 
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () => ({
@@ -1071,6 +1085,7 @@ export default function App() {
       "view.zoomIn": zoomIn,
       "view.zoomOut": zoomOut,
       "view.zoomReset": zoomReset,
+      "view.zenMode": () => setZenMode((v) => !v),
       "editor.undo": () => editorRefs.current.get(activeId)?.undo(),
       "editor.redo": () => editorRefs.current.get(activeId)?.redo(),
     }),
@@ -1207,6 +1222,11 @@ export default function App() {
 
   const handleEditorDirty = useCallback(
     (id: number, dirty: boolean) => updateTab(id, { dirty }),
+    [updateTab],
+  );
+
+  const handleRenameTab = useCallback(
+    (id: number, title: string) => updateTab(id, { customTitle: title.trim() }),
     [updateTab],
   );
 
@@ -1445,7 +1465,8 @@ export default function App() {
     <ThemeProvider>
       <TooltipProvider>
         <div className="relative flex h-screen flex-col overflow-hidden bg-background text-foreground">
-          <Header
+          {!zenMode && (
+            <Header
             tabs={tabs}
             activeId={activeId}
             onSelect={setActiveId}
@@ -1456,6 +1477,7 @@ export default function App() {
             onNewGitGraph={openGitGraphFromContext}
             onClose={handleClose}
             onPin={pinTab}
+            onRename={handleRenameTab}
             onToggleSidebar={toggleSidebar}
             onSplit={splitActivePaneInActiveTab}
             canSplit={
@@ -1467,7 +1489,8 @@ export default function App() {
             onOpenSettings={() => void openSettingsWindow()}
             searchTarget={searchTarget}
             searchRef={searchInlineRef}
-          />
+            />
+          )}
 
           <main className="zoom-content flex min-h-0 flex-1 flex-col">
             <ResizablePanelGroup
@@ -1548,7 +1571,8 @@ export default function App() {
             </ResizablePanelGroup>
           </main>
 
-          <StatusBar
+          {!zenMode && (
+            <StatusBar
             cwd={activeCwd}
             filePath={activeFilePath}
             home={home}
@@ -1559,7 +1583,8 @@ export default function App() {
             privateActive={
               activeTab?.kind === "terminal" && activeTab.private === true
             }
-          />
+            />
+          )}
 
           <AgentNotificationsBridge
             tabs={tabs}
@@ -1625,6 +1650,36 @@ export default function App() {
                   Cancel
                 </AlertDialogCancel>
                 <AlertDialogAction onClick={confirmClose}>
+                  Close Anyway
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+
+          <AlertDialog
+            open={pendingTerminalCloseTab !== null}
+            onOpenChange={(open) => !open && setPendingTerminalCloseTab(null)}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Close Terminal?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  A process is running. Closing this tab will terminate it.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel
+                  onClick={() => setPendingTerminalCloseTab(null)}
+                >
+                  Cancel
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={() => {
+                    if (pendingTerminalCloseTab !== null)
+                      disposeTab(pendingTerminalCloseTab);
+                    setPendingTerminalCloseTab(null);
+                  }}
+                >
                   Close Anyway
                 </AlertDialogAction>
               </AlertDialogFooter>
