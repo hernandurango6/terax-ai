@@ -8,6 +8,7 @@ import { SerializeAddon } from "@xterm/addon-serialize";
 import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
+import { toast } from "sonner";
 import {
   terminalDeleteSequence,
   terminalLineNavigationSequence,
@@ -226,6 +227,29 @@ function createSlot(): Slot {
     if (leafId === null) return;
     adapter?.resolveLeaf(leafId)?.writeToPty(data);
   });
+
+  if (!IS_MAC) {
+    // Copy-on-select: copy once the mouse is released, not on every
+    // intermediate selectionChange, so the clipboard isn't thrashed mid-drag.
+    host.addEventListener("mouseup", () => {
+      const sel = term.getSelection();
+      if (sel)
+        void navigator.clipboard
+          .writeText(sel)
+          .then(() => toast("Copied", { id: "term-copy", duration: 1200 }))
+          .catch(() => {});
+    });
+    // Paste-on-right-click: replace the native menu with a direct paste.
+    host.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      void navigator.clipboard
+        .readText()
+        .then((text) => {
+          if (text) term.paste(text);
+        })
+        .catch(() => {});
+    });
+  }
 
   slots.push(slot);
   return slot;
