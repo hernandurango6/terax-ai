@@ -24,3 +24,6 @@ dist-ssr
 *.sw?
 
 *.tsbuildinfo
+
+# Design docs (local only)
+docs/design/ssh-remote-workspace.md
