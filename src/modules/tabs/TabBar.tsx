@@ -37,6 +37,7 @@ type Props = {
   activeId: number;
   onSelect: (id: number) => void;
   onNew: () => void;
+  onNewBlock: () => void;
   onNewPrivate: () => void;
   onNewPreview: () => void;
   onNewEditor: () => void;
@@ -54,6 +55,7 @@ export function TabBar({
   activeId,
   onSelect,
   onNew,
+  onNewBlock,
   onNewPrivate,
   onNewPreview,
   onNewEditor,
@@ -102,6 +104,7 @@ export function TabBar({
           <TabsList className="h-7 w-max gap-0.5 bg-transparent p-0">
             {tabs.map((t) => {
               const isPreview = t.kind === "editor" && (t as EditorTab).preview;
+              const isActive = t.id === activeId;
 
               // While renaming, render a non-button cell so the <input> is not
               // nested inside the trigger <button> (invalid HTML, and WebKit
@@ -146,7 +149,10 @@ export function TabBar({
                     if (e.button === 1) e.preventDefault();
                   }}
                   className={cn(
-                    "group h-7 shrink-0 gap-1.5 rounded-md text-xs text-muted-foreground transition-colors data-[state=active]:bg-accent data-[state=active]:text-foreground hover:text-foreground/80 justify-between",
+                    "group h-7 shrink-0 gap-1.5 rounded-md text-xs transition-colors hover:text-foreground/80 justify-between",
+                    isActive
+                      ? "bg-accent text-foreground"
+                      : "text-muted-foreground",
                     compact
                       ? "px-1.5!"
                       : tabs.length === 1
@@ -198,7 +204,10 @@ export function TabBar({
               return (
                 <ContextMenu key={t.id}>
                   <ContextMenuTrigger asChild>{trigger}</ContextMenuTrigger>
-                  <ContextMenuContent className="min-w-36">
+                  <ContextMenuContent
+                    className="min-w-36"
+                    onCloseAutoFocus={(e) => e.preventDefault()}
+                  >
                     <ContextMenuItem onSelect={() => setEditingId(t.id)}>
                       <HugeiconsIcon
                         icon={PencilEdit02Icon}
@@ -249,6 +258,15 @@ export function TabBar({
                 {fmtShortcut(MOD_KEY, "T")}
               </span>
             </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onNewBlock()}>
+              <HugeiconsIcon
+                icon={ComputerTerminal02Icon}
+                size={14}
+                strokeWidth={1.75}
+              />
+              <span className="flex-1">Block terminal</span>
+              <span className="text-xs text-muted-foreground">beta</span>
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onNewPrivate()}>
               <HugeiconsIcon
                 icon={IncognitoIcon}
@@ -289,7 +307,7 @@ export function TabBar({
   );
 }
 
-function TabIcon({ tab }: { tab: Tab }) {
+export function TabIcon({ tab }: { tab: Tab }) {
   if (tab.kind === "editor" || tab.kind === "markdown") {
     const url = fileIconUrl(tab.title);
     return url ? <img src={url} alt="" className="size-3.5 shrink-0" /> : null;
