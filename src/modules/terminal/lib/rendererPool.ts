@@ -9,6 +9,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { Terminal } from "@xterm/xterm";
 import { toast } from "sonner";
+import { readTerminalPasteText } from "./clipboardPaste";
 import {
   terminalDeleteSequence,
   terminalLineNavigationSequence,
@@ -218,12 +219,9 @@ function createSlot(): Slot {
     }
     if (isTerminalPaste(event)) {
       if (event.type === "keydown") {
-        void navigator.clipboard
-          .readText()
-          .then((text) => {
-            if (text) slot.term.paste(text);
-          })
-          .catch(() => {});
+        void readTerminalPasteText().then((text) => {
+          if (text) slot.term.paste(text);
+        });
       }
       event.preventDefault();
       return false;
@@ -251,12 +249,9 @@ function createSlot(): Slot {
     // Paste-on-right-click: replace the native menu with a direct paste.
     host.addEventListener("contextmenu", (e) => {
       e.preventDefault();
-      void navigator.clipboard
-        .readText()
-        .then((text) => {
-          if (text) term.paste(text);
-        })
-        .catch(() => {});
+      void readTerminalPasteText().then((text) => {
+        if (text) term.paste(text);
+      });
     });
   }
 
